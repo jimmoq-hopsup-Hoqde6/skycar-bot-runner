@@ -73,8 +73,9 @@ def request_for(role, sha, context, previous):
 def run(client, output, sha, context):
     output.mkdir(parents=True, exist_ok=False)
     previous = {}
-    summary = {'mode': 'nine-role-report-bootstrap', 'sha': sha, 'max_session_cents': 100,
-               'max_cycle_cents': 900, 'roles': {}, 'status': 'in_progress'}
+    summary = {'mode': 'nine-role-report-bootstrap', 'sha': sha, 'session_limit_cents': 100,
+               'sum_session_limits_cents': 900, 'all_in_billing_cap_verified': False,
+               'roles': {}, 'status': 'in_progress'}
     for role in ROLES:
         pilot, request = request_for(role, sha, context, previous)
         try:
@@ -105,7 +106,8 @@ def main():
     context = json.loads((ROOT / 'context/issues.json').read_text())
     if not args.execute:
         print(json.dumps({'mode': 'offline_preflight', 'roles': list(ROLES), 'sha': sha,
-                          'max_cycle_cents': 900, 'schedule': 'none', 'outputs': 'reports_only'}, indent=2))
+                          'sum_session_limits_cents': 900, 'all_in_billing_cap_verified': False,
+                          'schedule': 'none', 'outputs': 'reports_only'}, indent=2))
         return
     if not args.output or not os.environ.get('OPENAI_API_KEY'):
         parser.error('Existing OPENAI_API_KEY and output path required')
