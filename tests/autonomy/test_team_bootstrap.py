@@ -64,6 +64,11 @@ class TeamTests(unittest.TestCase):
             out = Path(temp) / 'cycle'
             result = team.run(None, out, 'a' * 40, {})
             self.assertEqual(len(result['roles']), 9)
+            self.assertEqual(result['session_limit_cents'], 100)
+            self.assertEqual(result['sum_session_limits_cents'], 900)
+            self.assertFalse(result['all_in_billing_cap_verified'])
+            self.assertNotIn('max_cycle_cents', result)
+            self.assertEqual(result['status'], 'nine_reports_completed_NOT_application_changes')
             self.assertIn('qa', seen['security'])
             self.assertIn('security', seen['release'])
             with self.assertRaises(FileExistsError):
