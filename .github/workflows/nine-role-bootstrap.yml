@@ -1,6 +1,12 @@
 name: Nine-role bootstrap
 on:
   workflow_dispatch:
+    inputs:
+      execute_paid_reports:
+        description: 'Run one paid nine-report cycle after separate scope and cost approval'
+        type: boolean
+        required: true
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -8,17 +14,24 @@ concurrency:
   cancel-in-progress: false
 jobs:
   bootstrap:
-    if: github.ref == 'refs/heads/main' && github.run_attempt == 1
-    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'jimmoq-hopsup-Hoqde6/skycar-bot-runner' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
+      inputs.execute_paid_reports == true
+    environment: skycar-agent-pilot
+    runs-on: ubuntu-24.04
     timeout-minutes: 100
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - run: python3 -m pip install -r scripts/autonomy/requirements-pilot.txt
       - name: Verify offline controls before accessing credentials
         run: python3 -m unittest discover -s tests/autonomy -p 'test_*.py' -v
-      - name: Run nine isolated role sessions (maximum US$9 per cycle)
+      - name: Run nine report sessions (US$1 session limits, not an all-in cost cap)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python3 scripts/autonomy/team_bootstrap.py --execute --output "$RUNNER_TEMP/skycar-evidence"
