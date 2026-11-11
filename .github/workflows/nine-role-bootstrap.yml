@@ -1,0 +1,32 @@
+name: Nine-role bootstrap
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: skycar-bot-execution
+  cancel-in-progress: false
+jobs:
+  bootstrap:
+    if: github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - run: python3 -m pip install -r scripts/autonomy/requirements-pilot.txt
+      - name: Verify offline controls before accessing credentials
+        run: python3 -m unittest discover -s tests/autonomy -p 'test_*.py' -v
+      - name: Run nine isolated role sessions (maximum US$9 per cycle)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python3 scripts/autonomy/team_bootstrap.py --execute --output "$RUNNER_TEMP/skycar-evidence"
+      - name: Preserve session IDs and reports, including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nine-role-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/skycar-evidence
+          retention-days: 14
+          if-no-files-found: warn
