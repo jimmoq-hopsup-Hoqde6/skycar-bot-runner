@@ -1,21 +1,57 @@
 # Skycar bot runner
 
-An isolated home for Skycar's bot setup. This repository contains no application, customer data, credentials, or hosting configuration.
+Nine role sessions with explicit handoffs: project-manager, product, ux-ui, mobile,
+backend, ai-specialist, qa, security and release.
 
-## Current capability
+## Current scope
 
-The **Skycar bot safety preflight** workflow is manual-only and requires owner approval through the `skycar-agent-pilot` environment. It uses a read-only GitHub token, checks out an immutable public Skycar source revision, verifies the offline request fingerprint, and runs 29 credential-free safety and routing tests.
+The manual **Nine-role bootstrap** workflow starts separate hosted agent sessions
+in sequence. Each receives the captured Skycar issue queue, runner source and
+previous role reports. Each returns a validated Markdown report artifact.
+QA and Security have separate sessions. Their reports are advisory, not release
+approval. This first cycle does not modify the application or open pull requests.
 
-- Source: [Skycar pilot commit f10a36f](https://github.com/jimmoq-hopsup-Hoqde6/skycar-site/commit/f10a36fe98961dc1dcfbace37d9323752e1f3ffe)
-- Controller review: [Skycar PR #95](https://github.com/jimmoq-hopsup-Hoqde6/skycar-site/pull/95)
-- Original workflow review: [Skycar PR #96](https://github.com/jimmoq-hopsup-Hoqde6/skycar-site/pull/96)
+The existing two-file coding pilot from skycar-site PR #95 is preserved in
+`scripts/autonomy/bounded_coding_pilot.py`, with its original tests. It is not
+automatically invoked by the nine-role reporting cycle.
 
-There is no OpenAI API key, paid execution step, schedule, automatic code publishing, application deployment, or connection to a hosting project. The budget printed by the preflight describes a proposed future session, not a payment authorization.
+## Activate the first cycle
 
-## Before live coding
+1. Add the already-authorized Skycar key to this repository's Actions secrets as
+   `OPENAI_API_KEY`. Never commit it or post it in an issue or chat.
+2. Check **Runner offline tests** is green on the exact main commit.
+3. Open Actions → Nine-role bootstrap → Run workflow on main.
+4. Inspect `nine-role-evidence-RUN_ID`, particularly `summary.json` and each role's
+   `state.json`. Count actual completed sessions, not configured roles.
 
-Live coding needs separate owner approval for the exact task, source files, credential scope and spending limit. It also needs verified billing, a securely configured restricted key, reviewed execution code, and post-run artifact testing. Completing this preflight does not mean an autonomous coding bot is active.
+No live run is implied by installing these files. Provider access, billing and
+key validity are established only by the first live run. The current snapshot is
+dated 2026-11-11 and is not a current-state audit of the application.
 
-## Safety boundaries
+## Bounds and recovery
 
-The Skycar application repository and its branch protections remain separate and unchanged. Do not add paid execution or automatic publishing without the required owner approvals. Do not add production secrets or customer data to this repository.
+- Hosted session limit: 100 US cents, confirmed by API before task submission.
+- Nine sessions maximum per invocation, so at most US$9 in session limits.
+- One active workflow; one agent session at a time; 10-minute session deadline.
+- Sandbox network disabled; no credentials, repository writes or external tools.
+- Controller has a read-only GitHub token, not passed to the hosted agent.
+- Failure stops the cycle. Automatic retries and workflow reruns are blocked.
+- Evidence persists on failure; reconcile session/cleanup state before a new run.
+- Cancel the workflow to stop it; cancellation requests session cleanup. Check
+  evidence for pending cleanup. An unknown creation outcome requires reconciliation.
+- No schedule, monthly spend ledger, automatic merge, deployment or release.
+  Do not enable recurring paid cycles until cumulative budget enforcement and
+  independent review of this controller are complete.
+
+## Verification
+
+`python3 -m pip install -r scripts/autonomy/requirements-pilot.txt`
+
+`python3 -m unittest discover -s tests/autonomy -p 'test_*.py' -v`
+
+`python3 scripts/autonomy/team_bootstrap.py` prints offline preflight metadata
+from a clean committed checkout without accessing an API key.
+
+Next development milestone: validate the live nine-role bootstrap, run the
+bounded coding pilot, independently test its generated artifact, then publish a
+draft PR. These steps must not be reported as complete from passing mock tests.
