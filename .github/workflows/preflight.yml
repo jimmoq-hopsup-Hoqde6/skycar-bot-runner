@@ -1,0 +1,61 @@
+name: Skycar bot safety preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skycar-bot-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.repository == 'jimmoq-hopsup-Hoqde6/skycar-bot-runner' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    environment: skycar-agent-pilot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out reviewed public controller
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: jimmoq-hopsup-Hoqde6/skycar-site
+          ref: f10a36fe98961dc1dcfbace37d9323752e1f3ffe
+          persist-credentials: false
+      - name: Verify pinned source and credential-free preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = f10a36fe98961dc1dcfbace37d9323752e1f3ffe
+          test -z "${OPENAI_API_KEY:-}"
+          python3 scripts/autonomy/bounded_coding_pilot.py \
+            --sha f10a36fe98961dc1dcfbace37d9323752e1f3ffe --budget-cents 100 \
+            > "$RUNNER_TEMP/skycar-preflight.json"
+          python3 - "$RUNNER_TEMP/skycar-preflight.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1]) as stream:
+              result = json.load(stream)
+          assert result['mode'] == 'offline_preflight'
+          assert result['sha'] == 'f10a36fe98961dc1dcfbace37d9323752e1f3ffe'
+          assert result['request_fingerprint'] == '5f1b42e91c8178b79385f3394a3b9de986fab8cd5d463b7c926a308512dfbb56'
+          assert result['network'] == 'disabled'
+          assert result['writes'] == 'artifact_only'
+          assert result['schedule'] == 'none'
+          print(json.dumps(result, indent=2))
+          PY
+      - name: Run 29 credential-free safety and routing tests
+        run: |
+          python3 -m unittest discover -s tests/autonomy -p test_bounded_coding_pilot.py -v
+          python3 -m unittest discover -s tests/autonomy -p test_review_pilot_artifact.py -v
+          python3 -m unittest discover -s tests/autonomy -p test_queue_dry_run.py -v
+      - name: Record verified scope
+        run: |
+          printf '%s\n' \
+            '## Safety preflight passed' \
+            'Pinned public source and expected request fingerprint verified.' \
+            '29 credential-free controller, artifact and routing tests passed.' \
+            'No OpenAI API call, API key, paid execution, code generation, application change or deployment.' \
+            'SDK contract tests were previously verified locally; this run installs no SDK.' \
+            'This workflow is manual-only. A live coding pilot requires separate approval and setup.' \
+            >> "$GITHUB_STEP_SUMMARY"
