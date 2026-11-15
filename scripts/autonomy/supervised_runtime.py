@@ -88,8 +88,10 @@ def discover_recovery(pid, sha, token, opener):
     return matches[0]
 
 
-WAIT_SECONDS = 300
-WAIT_POLL_SECONDS = 5
+# Pre-arming human-approval window only. Receipt age and paid execution limits
+# remain unchanged. Keep at most 60 discovery iterations, as before.
+WAIT_SECONDS = 900
+WAIT_POLL_SECONDS = 15
 
 
 def wait_for_recovery(pid, sha, token, opener, *, clock=time.monotonic, sleep=time.sleep):

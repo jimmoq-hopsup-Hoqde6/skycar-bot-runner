@@ -62,7 +62,7 @@ class RuntimeExecutionOrderTests(unittest.TestCase):
                 provider.assert_called_once();execution.assert_called_once()
                 self.assertEqual(trace,['verify','verified','provider_client','execute'])
             self.assertEqual(discovery.call_count,2)
-            self.assertEqual(ticks[0],5)
+            self.assertEqual(ticks[0],15)
 
     def test_missing_then_fresh_executes_exactly_once_after_gate(self):
         self.exercise()

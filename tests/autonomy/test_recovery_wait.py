@@ -21,14 +21,14 @@ class RecoveryWaitTests(unittest.TestCase):
     def test_missing_receipt_then_live_loop(self):
         with patch.object(r,'discover_recovery',side_effect=[r.RecoveryNotReady(),(34,{'id':56})]),patch.object(r,'fetch_records',return_value=({}, {}, self.job)):
             self.assertEqual(self.go(),(34,{'id':56}))
-        self.assertEqual(self.sleeps,[5])
+        self.assertEqual(self.sleeps,[15])
     def test_queued_or_pending_loop_waits_then_is_rechecked(self):
         for state in ('queued','pending'):
             self.now=0;self.sleeps=[]
             waiting=dict(steps=[self.job['steps'][0],dict(self.job['steps'][1],status=state)])
             with patch.object(r,'discover_recovery',return_value=(34,{})),patch.object(r,'fetch_records',side_effect=[({}, {}, waiting),({}, {}, self.job)]) as records:
                 self.assertEqual(self.go(),(34,{}));self.assertEqual(records.call_count,2)
-            self.assertEqual(self.sleeps,[5])
+            self.assertEqual(self.sleeps,[15])
     def test_visible_artifact_waits_for_publication_completion(self):
         waiting=dict(steps=[
             dict(self.job['steps'][0],status='in_progress',conclusion=None),
@@ -36,7 +36,7 @@ class RecoveryWaitTests(unittest.TestCase):
         with patch.object(r,'discover_recovery',return_value=(34,{})),patch.object(r,'fetch_records',side_effect=[({}, {}, waiting),({}, {}, self.job)]) as records:
             self.assertEqual(self.go(),(34,{}))
             self.assertEqual(records.call_count,2)
-        self.assertEqual(self.sleeps,[5])
+        self.assertEqual(self.sleeps,[15])
     def test_unknown_auth_or_ambiguity_not_retried(self):
         for error in (r.RecoveryBlocked('authentication'),r.RecoveryBlocked('ambiguous'),RuntimeError('unknown')):
             self.sleeps=[]
@@ -57,17 +57,30 @@ class RecoveryWaitTests(unittest.TestCase):
             with self.subTest(steps=steps),patch.object(r,'discover_recovery',return_value=(34,{})),patch.object(r,'fetch_records',return_value=({}, {}, dict(steps=steps))),self.assertRaises(r.RecoveryBlocked):
                 self.go()
             self.assertEqual(self.sleeps,[])
-    def test_absence_has_finite_300_second_deadline(self):
+    def test_absence_has_finite_900_second_deadline(self):
         with patch.object(r,'discover_recovery',side_effect=r.RecoveryNotReady()) as discover,self.assertRaises(r.RecoveryBlocked):
             self.go()
-        self.assertEqual(self.now,300);self.assertEqual(discover.call_count,60)
+        self.assertEqual(self.now,900);self.assertEqual(discover.call_count,60)
     def test_slow_ready_probe_cannot_return_after_deadline(self):
         def records(*args,**kwargs):
-            self.now=301
+            self.now=901
             return {},{},self.job
         with patch.object(r,'discover_recovery',return_value=(34,{})),patch.object(r,'fetch_records',side_effect=records),self.assertRaises(r.RecoveryBlocked):
             self.go()
         self.assertEqual(self.sleeps,[])
+    def test_ready_exactly_at_deadline_is_rejected(self):
+        def records(*args, **kwargs):
+            self.now=900
+            return {}, {}, self.job
+        with patch.object(r,'discover_recovery',return_value=(34,{})),patch.object(r,'fetch_records',side_effect=records),self.assertRaises(r.RecoveryBlocked):
+            self.go()
+    def test_delayed_approval_within_window_can_observe_fresh_loop(self):
+        def discover(*args, **kwargs):
+            if self.now < 600: raise r.RecoveryNotReady()
+            return 34, {'id':56}
+        with patch.object(r,'discover_recovery',side_effect=discover),patch.object(r,'fetch_records',return_value=({}, {}, self.job)):
+            self.assertEqual(self.go(),(34,{'id':56}))
+        self.assertEqual(self.now,600)
     def test_full_final_gate_still_after_fingerprint_before_execution(self):
         import inspect
         source=inspect.getsource(r.main)
