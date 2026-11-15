@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from github_recovery_records import _read, NoRedirect, BASE
+from github_recovery_records import _read, NoRedirect, BASE, fetch_records
 from supervised_recovery_handshake import (RecoveryBlocked, trusted_run, PRODUCER_PATH, RECOVERY_PATH,
     arm, cleanup_window, MAX_RECEIPT_AGE, PRODUCER_SECONDS)
 from recovery_receipt import MAX_ARCHIVE
@@ -69,6 +69,9 @@ def download_archive(artifact_id, token, opener, anonymous_opener):
         raise RecoveryBlocked('Artifact download failed') from None
 
 
+class RecoveryNotReady(RecoveryBlocked):
+    """Only a complete trusted listing with no arming artifact is waitable."""
+
 def discover_recovery(pid, sha, token, opener):
     page=_read('/actions/workflows/supervised-recovery.yml/runs?event=workflow_dispatch&status=in_progress&head_sha='+sha+'&per_page=10',token,opener)
     runs=page.get('workflow_runs')
@@ -79,8 +82,58 @@ def discover_recovery(pid, sha, token, opener):
         rid,_=trusted_run(run,RECOVERY_PATH,expected_sha=sha)
         artifact=artifact_for(rid,'pilot-recovery-armed-'+str(pid),token,opener)
         if artifact is not None:matches.append((rid,artifact))
+    if not matches:raise RecoveryNotReady('Arming artifact not yet published')
     if len(matches)!=1:raise RecoveryBlocked('No unique armed recovery')
     return matches[0]
+
+
+WAIT_SECONDS = 300
+WAIT_POLL_SECONDS = 5
+
+
+def wait_for_recovery(pid, sha, token, opener, *, clock=time.monotonic, sleep=time.sleep):
+    """Wait only for absence or a positively identified not-yet-started loop.
+
+    No provider calls. Deadline is checked before/after every probe; an in-flight
+    bounded GitHub read can finish after it, but cannot authorize a late return.
+    All identity, authentication, malformed and ambiguous failures propagate.
+    """
+    deadline = clock() + WAIT_SECONDS
+    while clock() < deadline:
+        ready = False
+        try:
+            rid, artifact = discover_recovery(pid, sha, token, opener)
+        except RecoveryNotReady:
+            pass
+        else:
+            _, _, job = fetch_records(pid, rid, sha, token, opener=opener)
+            steps = job.get('steps')
+            if not isinstance(steps, list) or any(not isinstance(s, dict) for s in steps):
+                raise RecoveryBlocked('Invalid recovery step records')
+            published = [s for s in steps if s.get('name') == 'Publish arming receipt']
+            loops = [s for s in steps if s.get('name') == 'Bounded recovery loop']
+            if len(published) != 1 or len(loops) != 1 or loops[0].get('conclusion') is not None:
+                raise RecoveryBlocked('Recovery is not safely waitable')
+            publication = published[0]
+            loop_status = loops[0].get('status')
+            if publication.get('status') == 'completed' and publication.get('conclusion') == 'success':
+                if loop_status == 'in_progress':
+                    ready = True
+                elif loop_status not in ('queued', 'pending'):
+                    raise RecoveryBlocked('Recovery is not safely waitable')
+            elif (publication.get('status') == 'in_progress'
+                    and publication.get('conclusion') is None
+                    and loop_status in ('queued', 'pending')):
+                pass  # Artifact may be visible before its upload step completes.
+            else:
+                raise RecoveryBlocked('Recovery is not safely waitable')
+        remaining = deadline - clock()
+        if remaining <= 0:
+            break
+        if ready:
+            return rid, artifact
+        sleep(min(WAIT_POLL_SECONDS, remaining))
+    raise RecoveryBlocked('Recovery readiness deadline reached')
 
 
 def write(path, value):
@@ -121,17 +174,17 @@ def main():
         from bounded_coding_pilot import build_request,bind_attempt,fingerprint,source_snapshot,execute
         from reconcile_pilot_attempt import COMMIT
         with phase('DISCOVERY'):
-            recovery_id,artifact=discover_recovery(rid,sha,token,opener)
+            recovery_id,artifact=wait_for_recovery(rid,sha,token,opener)
         with phase('ARCHIVE_DOWNLOAD'):
             archive=download_archive(artifact['id'],token,urllib.request.build_opener(CaptureRedirect()),urllib.request.build_opener(NoRedirect()))
         claim_id=int(os.environ['CLAIM_ARTIFACT_ID'])
         def claim(metadata):
             item=artifact_for(rid,'pilot-one-use-claim',token,opener)
             return (item is not None and item.get('id')==claim_id and item.get('expired') is False and item.get('workflow_run',{}).get('id')==rid and item.get('workflow_run',{}).get('head_sha')==sha)
-        verify(rid,recovery_id,sha,token,archive,lambda:int(time.time()),claim=claim,opener=opener)
         with phase('FINGERPRINT_VALIDATION'):
             request=bind_attempt(build_request(source_snapshot(args.root,COMMIT),COMMIT,100),rid,1,sha)
             if fingerprint(request)!=os.environ['REVIEWED_FINGERPRINT']:raise DiagnosticBlocked('FINGERPRINT_MISMATCH')
+        verify(rid,recovery_id,sha,token,archive,lambda:int(time.time()),claim=claim,opener=opener)
         from openai import OpenAI
         with OpenAI(api_key=os.environ['OPENAI_API_KEY'],base_url='https://api.openai.com/v1',max_retries=0,timeout=60) as client:
             with phase('EXECUTION_ENTRY'):
