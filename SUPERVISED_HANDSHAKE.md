@@ -1,21 +1,22 @@
-# Supervised recovery candidate: wired, not activated
+# Supervised recovery handshake
 
-Both workflow jobs remain hard-disabled. This draft wires a single supervised
-pilot, not nine autonomous bots. No real credentials, paid calls, settings changes
-or main merges were used to develop or test it.
+The manual, opt-in workflows wire a single supervised pilot, not nine autonomous
+bots. The current operator sequence is in [PRODUCER_FIRST_TIMING.md](PRODUCER_FIRST_TIMING.md).
+This code and its offline tests do not authorize paid execution.
 
 ## Concrete path
 
 1. Producer preflight emits the exact run-bound request fingerprint and waits for
    normal protected-environment approval. App input remains at the approved pin.
-2. Separately dispatch recovery for that producer ID and approve its existing
-   protected environment normally. The distinct concurrency group allows both
-   workflows to run concurrently. Recovery validates trusted GitHub run identity,
-   probes provider read access, stages and uploads a digest-bound arming receipt.
-3. Only after the recovery loop is visibly running should the human approve the
-   producer. Checkout/install and verification must finish within the receipt's
-   180-second freshness window; otherwise producer stops without creation.
-4. Producer uploads a fixed-name v4 one-use claim with overwrite=false. It verifies
+2. Approve the producer's existing protected environment first. It completes
+   checkout/install, uploads its claim and waits up to five minutes for recovery.
+   Separately dispatch recovery for that producer ID and the same workflow SHA.
+3. Recovery's secret-free job waits for exact live producer execution and verifies
+   its immutable claim. Only then can the human approve recovery's protected job.
+   After approval recovery revalidates the same producer/claim before its provider
+   read and again before staging a digest-bound arming receipt. No readiness means
+   no receipt. The distinct concurrency groups allow both workflows to run.
+4. Producer's fixed-name v4 one-use claim uses overwrite=false. It verifies
    that exact returned artifact ID, discovers one same-SHA recovery, downloads its
    bounded receipt archive without forwarding GitHub credentials to blob storage,
    checks digest/identity, and re-fetches live recovery job/step proof.
@@ -47,13 +48,10 @@ instantaneous cutoffs. Deletion confirmation is not a final billing receipt.
 
 ## Verification and activation boundary
 
-119 distinct offline tests pass with pinned SDK, independently rerun. Network
-and provider behavior are mocked. Both YAML files parse and all shell blocks
-pass bash -n. No upload/download handshake or live controller has been exercised
-against GitHub/OpenAI. Unsupported artifact storage hosts, pagination, ambiguity,
+Offline tests use the pinned SDK and mocked network/provider behavior. They do
+not establish live service availability. Unsupported artifact storage hosts, pagination, ambiguity,
 stale receipts and digest mismatches fail closed.
 
-Normal merge review and a separately reviewed activation change must restore
-explicit opt-in/main/first-attempt/approval safeguards. Never replace false with
-true alone. Two ordinary environment approvals and attended supervision are
-still required; this draft does not authorize paid execution.
+Normal merge review preserves explicit opt-in/main/first-attempt/approval
+safeguards. Two ordinary environment approvals and attended supervision remain
+required. Merging an ordering fix does not authorize a new paid execution.
