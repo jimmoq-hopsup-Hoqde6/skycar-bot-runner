@@ -24,7 +24,7 @@ def preflight(root, controller, context):
             'paths': ALLOWED_FILES, 'model': MODEL, 'session_budget_cents': 100,
             'request_fingerprint': fingerprint(request), 'attempt_metadata': request['metadata'],
             'network': 'disabled', 'writes': 'artifact_only', 'schedule': 'none',
-            'activation': 'BLOCKED_pending_independent_supervisor_and_cost_verification'}
+            'activation': 'AWAITING_protected_approval_verified_recovery_and_cost_controls'}
 
 
 if __name__ == '__main__':

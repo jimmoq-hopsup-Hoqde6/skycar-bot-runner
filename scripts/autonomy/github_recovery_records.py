@@ -92,7 +92,8 @@ This does not approve a deployment, arm cleanup, or provide a durable claim.
             not 1 <= count <= 100 or count != len(jobs)):
         raise RecoveryBlocked('Incomplete or oversized GitHub jobs page')
     if any(not isinstance(j, dict) or j.get('run_id') != recovery_id or
-           j.get('head_sha') != expected_sha or j.get('run_attempt') != 1 for j in jobs):
+           j.get('head_sha') != expected_sha or
+           ('run_attempt' in j and (type(j['run_attempt']) is not int or j['run_attempt'] != 1)) for j in jobs):
         raise RecoveryBlocked('GitHub job identity mismatch')
     matches = [j for j in jobs if j.get('name') == 'supervised-recovery']
     if len(matches) != 1:
@@ -100,4 +101,7 @@ This does not approve a deployment, arm cleanup, or provide a durable claim.
     job = matches[0]
     if job.get('status') != 'in_progress' or job.get('conclusion') is not None:
         raise RecoveryBlocked('Recovery job is not live')
+    # REST jobs may omit run_attempt; exact /attempts/1/jobs endpoint plus validated
+    # parent run binds it. Normalize only after checking that trusted response.
+    job = dict(job, run_attempt=1)
     return producer, recovery, job
