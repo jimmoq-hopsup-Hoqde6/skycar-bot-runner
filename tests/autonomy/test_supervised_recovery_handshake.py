@@ -82,9 +82,11 @@ class HandshakeTests(unittest.TestCase):
         with self.assertRaises(h.RecoveryBlocked):h.authorize(receipt,p,r,j,1020)
         h.authorize(receipt,p,r,j,1020,claim=claim)
         with self.assertRaises(h.RecoveryBlocked):h.authorize(receipt,p,r,j,1020,claim=claim)
-    def test_workflow_separate_concurrency_hard_disabled_no_secret(self):
+    def test_workflow_separate_concurrency_explicit_opt_in_and_key_scope(self):
         text=(Path(__file__).resolve().parents[2]/'.github/workflows/supervised-recovery.yml').read_text()
-        self.assertIn('if: ${{ false }}',text);self.assertIn('group: skycar-supervised-recovery',text)
+        self.assertIn('inputs.arm_supervised_recovery == true',text);self.assertIn('group: skycar-supervised-recovery',text)
+        self.assertIn("github.ref == 'refs/heads/main'",text);self.assertIn('github.run_attempt == 1',text)
+        self.assertIn("github.event_name == 'workflow_dispatch'",text);self.assertIn('default: false',text)
         self.assertEqual(text.count('secrets.SKYCAR_PILOT_OPENAI_API_KEY'),2)
         self.assertNotIn('secrets.OPENAI_API_KEY',text);self.assertIn('environment: skycar-agent-pilot',text)
         self.assertIn('name: Publish arming receipt',text);self.assertIn('name: Bounded recovery loop',text)

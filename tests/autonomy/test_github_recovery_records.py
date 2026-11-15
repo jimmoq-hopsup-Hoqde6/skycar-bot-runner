@@ -46,6 +46,12 @@ class GitHubRecordsTests(unittest.TestCase):
         self.assertEqual([r.full_url for r in self.requests],[g.BASE+'/actions/runs/12',
             g.BASE+'/actions/runs/34',g.BASE+'/actions/runs/34/attempts/1/jobs?per_page=100'])
         self.assertTrue(all(r.get_method()=='GET' for r in self.requests))
+    def test_documented_job_without_attempt_is_bound_by_exact_endpoint(self):
+        del self.job['run_attempt']
+        _,_,job=self.go()
+        self.assertEqual(job['run_attempt'],1)
+        self.assertIn('/attempts/1/jobs?',self.requests[-1].full_url)
+        self.assertNotIn('run_attempt',self.job)
     def test_bad_inputs_make_no_calls(self):
         for pid,rid,sha,token in [(True,34,self.sha,'x'),(12,12,self.sha,'x'),
                                 (12,34,'main','x'),(12,34,self.sha,'x\nsecret')]:

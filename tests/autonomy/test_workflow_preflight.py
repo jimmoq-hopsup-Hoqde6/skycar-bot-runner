@@ -15,7 +15,7 @@ class WorkflowPreflightTests(unittest.TestCase):
         out=self.run_scope(self.context())
         self.assertEqual(out['attempt_metadata']['runner_run_id'],'123')
         self.assertEqual(out['sha'],p.COMMIT)
-        self.assertTrue(out['activation'].startswith('BLOCKED'))
+        self.assertTrue(out['activation'].startswith('AWAITING'))
     def test_reject_untrusted_context(self):
         for field,value in [('GITHUB_REPOSITORY','wrong/repo'),('GITHUB_REF','refs/heads/other'),('GITHUB_EVENT_NAME','pull_request'),('GITHUB_RUN_ATTEMPT','2'),('GITHUB_RUN_ID','0123'),('GITHUB_RUN_ID','x'),('GITHUB_SHA','main')]:
             c=self.context();c[field]=value

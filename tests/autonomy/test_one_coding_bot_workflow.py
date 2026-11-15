@@ -11,7 +11,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('schedule:', self.workflow)
     def test_review_gate(self):
         self.assertIn('environment: skycar-agent-pilot', self.workflow)
-        self.assertIn('if: ${{ false }}', self.workflow)
+        self.assertIn('inputs.execute_paid_task == true', self.workflow)
+        self.assertIn("needs.preflight.result == 'success'", self.workflow)
+        self.assertIn("github.event_name == 'workflow_dispatch'", self.workflow)
+        self.assertIn("github.repository == 'jimmoq-hopsup-Hoqde6/skycar-bot-runner'", self.workflow)
         self.assertIn('REVIEWED_FINGERPRINT: ${{ needs.preflight.outputs.fingerprint }}', self.workflow)
         self.assertNotIn('inputs.request_fingerprint', self.workflow)
         self.assertIn("github.run_attempt == 1", self.workflow)
