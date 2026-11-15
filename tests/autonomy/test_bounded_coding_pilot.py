@@ -4,6 +4,8 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts/autonomy"))
 import tempfile
 from types import SimpleNamespace as NS
 import unittest
@@ -26,6 +28,7 @@ class Context:
 
 def fake_client(raw=None, failed=False):
     sessions = Mock()
+    sessions.delete.return_value = NS(id='sess_test', deleted=True)
     sessions.create.return_value = NS(id='sess_test', spend_control=NS(limit=100))
     stream = Mock()
     stream.__iter__ = Mock(return_value=iter([]))
@@ -43,7 +46,7 @@ def fake_client(raw=None, failed=False):
 
 class PilotTests(unittest.TestCase):
     def request(self, cents=100):
-        return pilot.build_request({p: b'# source\n' for p in pilot.ALLOWED_FILES}, 'a'*40, cents)
+        return pilot.bind_attempt(pilot.build_request({p: b'# source\n' for p in pilot.ALLOWED_FILES}, 'f10a36fe98961dc1dcfbace37d9323752e1f3ffe', cents),123,1,'a'*40)
     def test_request_has_server_budget_and_no_network_credentials_or_tools(self):
         r = self.request()
         self.assertEqual(r['spend_control'], {'limit': 100})
@@ -112,7 +115,7 @@ class PilotTests(unittest.TestCase):
             self.assertEqual(state['status'],'artifact_validated_NOT_TESTED')
             self.assertEqual(state['turn_id'],'turn_test')
             self.assertTrue((out/'changes.json').exists())
-            self.assertEqual(state['cleanup'],'deletion_requested')
+            self.assertEqual(state['cleanup'],'deletion_confirmed')
             with self.assertRaises(FileExistsError): pilot.execute(client,r,out,pilot.fingerprint(r))
         self.assertEqual(sessions.create.call_count,1)
     def test_failed_turn_never_downloads_or_reports_success(self):

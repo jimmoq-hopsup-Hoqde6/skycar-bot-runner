@@ -17,7 +17,7 @@ class ArtifactReviewTests(unittest.TestCase):
         original={p:b'# original\n' for p in pilot.ALLOWED_FILES}
         raw=json.dumps({'task_id':pilot.TASK_ID,'files':[{'path':p,'content':'# candidate\n'} for p in original]}).encode()
         artifact=root/'changes.json';artifact.write_bytes(raw)
-        state={'sha':'a'*40,'status':'artifact_validated_NOT_TESTED','cleanup':'deletion_requested','artifact_sha256':hashlib.sha256(raw).hexdigest()}
+        state={'sha':'a'*40,'status':'artifact_validated_NOT_TESTED','cleanup':'deletion_confirmed','artifact_sha256':hashlib.sha256(raw).hexdigest()}
         statepath=root/'state.json';statepath.write_text(json.dumps(state))
         return original,artifact,state,statepath
     def test_valid_output_emits_patch_without_executing_it(self):
