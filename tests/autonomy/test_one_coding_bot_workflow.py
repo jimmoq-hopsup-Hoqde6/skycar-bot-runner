@@ -31,7 +31,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.workflow.count('ref: ${{ github.sha }}'), 2)
         self.assertEqual(self.workflow.count('path: controller'), 2)
         self.assertEqual(self.workflow.count('path: app'), 2)
-        self.assertIn('--run-id "$TRUSTED_RUN_ID"', self.workflow)
+        self.assertIn('supervised_runtime.py execute', self.workflow)
+        self.assertIn('name: pilot-one-use-claim', self.workflow)
+        self.assertIn('overwrite: false', self.workflow)
         self.assertIn('GITHUB_STEP_SUMMARY', self.workflow)
     def test_evidence_not_publication(self):
         self.assertIn('if: always()', self.workflow)
