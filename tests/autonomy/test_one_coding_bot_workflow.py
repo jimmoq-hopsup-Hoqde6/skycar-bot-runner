@@ -19,6 +19,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("OPENAI_API_KEY: ''", self.workflow)
         self.assertIn('contents: read', self.workflow)
         self.assertNotIn('write', self.workflow.split('jobs:')[0])
+    def test_dedicated_environment_key_name(self):
+        self.assertIn('secrets.SKYCAR_PILOT_OPENAI_API_KEY', self.workflow)
+        self.assertNotIn('secrets.OPENAI_API_KEY', self.workflow)
     def test_exact_source(self):
         self.assertEqual(self.workflow.count('persist-credentials: false'), 2)
         self.assertEqual(self.workflow.count('ref: f10a36fe98961dc1dcfbace37d9323752e1f3ffe'), 2)
@@ -29,3 +32,4 @@ class WorkflowTests(unittest.TestCase):
             self.assertNotIn(command, self.workflow)
 if __name__ == '__main__':
     unittest.main()
+
