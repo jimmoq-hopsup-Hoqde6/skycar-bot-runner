@@ -5,6 +5,7 @@ receipt staging is not durable arming: producer requires uploaded artifact plus
 independently observed live recovery-loop step before creation.
 """
 import json
+from safe_pilot_diagnostics import phase, DiagnosticBlocked
 import os
 import time
 import urllib.error
@@ -119,18 +120,22 @@ def main():
     else:
         from bounded_coding_pilot import build_request,bind_attempt,fingerprint,source_snapshot,execute
         from reconcile_pilot_attempt import COMMIT
-        recovery_id,artifact=discover_recovery(rid,sha,token,opener)
-        archive=download_archive(artifact['id'],token,urllib.request.build_opener(CaptureRedirect()),urllib.request.build_opener(NoRedirect()))
+        with phase('DISCOVERY'):
+            recovery_id,artifact=discover_recovery(rid,sha,token,opener)
+        with phase('ARCHIVE_DOWNLOAD'):
+            archive=download_archive(artifact['id'],token,urllib.request.build_opener(CaptureRedirect()),urllib.request.build_opener(NoRedirect()))
         claim_id=int(os.environ['CLAIM_ARTIFACT_ID'])
         def claim(metadata):
             item=artifact_for(rid,'pilot-one-use-claim',token,opener)
             return (item is not None and item.get('id')==claim_id and item.get('expired') is False and item.get('workflow_run',{}).get('id')==rid and item.get('workflow_run',{}).get('head_sha')==sha)
         verify(rid,recovery_id,sha,token,archive,lambda:int(time.time()),claim=claim,opener=opener)
-        request=bind_attempt(build_request(source_snapshot(args.root,COMMIT),COMMIT,100),rid,1,sha)
-        if fingerprint(request)!=os.environ['REVIEWED_FINGERPRINT']:raise RecoveryBlocked('Reviewed fingerprint changed')
+        with phase('FINGERPRINT_VALIDATION'):
+            request=bind_attempt(build_request(source_snapshot(args.root,COMMIT),COMMIT,100),rid,1,sha)
+            if fingerprint(request)!=os.environ['REVIEWED_FINGERPRINT']:raise DiagnosticBlocked('FINGERPRINT_MISMATCH')
         from openai import OpenAI
         with OpenAI(api_key=os.environ['OPENAI_API_KEY'],base_url='https://api.openai.com/v1',max_retries=0,timeout=60) as client:
-            execute(client,request,args.output,fingerprint(request))
+            with phase('EXECUTION_ENTRY'):
+                execute(client,request,args.output,fingerprint(request))
 
 if __name__=='__main__':
     try:main()

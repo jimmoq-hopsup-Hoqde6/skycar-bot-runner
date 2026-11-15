@@ -4,6 +4,7 @@ All records must be independently fetched by a trusted adapter. This module does
 not authenticate dicts; a receipt from an artifact alone is never sufficient.
 """
 import re
+from safe_pilot_diagnostics import DiagnosticBlocked
 from reconcile_pilot_attempt import attempt_metadata, reconcile, RUNNER_REPOSITORY
 from recover_pilot_session import RecoveryBlocked
 
@@ -78,24 +79,28 @@ def authorize(receipt, producer_run, recovery_run, recovery_job, now, *, claim=N
     if (receipt['schema'] != SCHEMA or receipt['producer_run_id'] != pid
             or receipt['recovery_run_id'] != rid or pid == rid
             or receipt['workflow_sha'] != sha or receipt['metadata'] != attempt_metadata(pid, 1, sha)
-            or stop != armed + LEASE_SECONDS or not 0 <= now - armed <= MAX_RECEIPT_AGE
-            or stop - now < PRODUCER_SECONDS + CLEANUP_MARGIN
-            or recovery_run['status'] != 'in_progress'):
-        raise RecoveryBlocked('Stale or mismatched arming receipt')
+            or stop != armed + LEASE_SECONDS):
+        raise DiagnosticBlocked('RECEIPT_MISMATCH')
+    if not 0 <= now - armed <= MAX_RECEIPT_AGE:
+        raise DiagnosticBlocked('RECEIPT_EXPIRED')
+    if stop - now < PRODUCER_SECONDS + CLEANUP_MARGIN:
+        raise DiagnosticBlocked('LEASE_INSUFFICIENT')
+    if recovery_run['status'] != 'in_progress':
+        raise DiagnosticBlocked('RECOVERY_NOT_LIVE')
     if (recovery_job.get('run_id') != rid or recovery_job.get('run_attempt') != 1
             or recovery_job.get('head_sha') != sha or recovery_job.get('name') != 'supervised-recovery'
             or recovery_job.get('status') != 'in_progress' or recovery_job.get('conclusion') is not None):
-        raise RecoveryBlocked('Recovery job is not independently verified running')
+        raise DiagnosticBlocked('RECOVERY_NOT_LIVE')
     steps = recovery_job.get('steps', [])
     arm_steps = [s for s in steps if s.get('name') == 'Publish arming receipt']
     loops = [s for s in steps if s.get('name') == 'Bounded recovery loop']
     if (len(arm_steps) != 1 or arm_steps[0].get('status') != 'completed' or arm_steps[0].get('conclusion') != 'success'
             or len(loops) != 1 or loops[0].get('status') != 'in_progress'):
-        raise RecoveryBlocked('No positive arming and live loop proof')
+        raise DiagnosticBlocked('RECOVERY_NOT_LIVE')
     # Adapter must atomically claim one immutable producer identity in durable storage.
     # A failed/lost claim response is unresolved, never permission to retry creation.
     if claim is None or claim(receipt['metadata']) is not True:
-        raise RecoveryBlocked('Single-use durable claim not acknowledged')
+        raise DiagnosticBlocked('CLAIM_REJECTED')
     return {'authorized_for_one_creation': True, 'metadata': receipt['metadata'],
             'latest_cleanup_at': stop, 'hard_deadline_guaranteed': False}
 
