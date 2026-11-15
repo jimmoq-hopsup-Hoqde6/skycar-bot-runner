@@ -21,7 +21,9 @@ unresolved attempt and confirm the existing cost, key and environment approvals.
 4. Remain present through execution and cleanup. An unresolved prior attempt,
    failed timing window or failed cleanup never authorizes another paid attempt.
 
-The readiness wait uses a monotonic 300-second deadline and five-second polls.
+The producer's recovery-readiness wait uses a monotonic 900-second deadline and
+15-second polls (at most 60 discovery iterations). The separate secret-free
+recovery job still waits at most 300 seconds for producer readiness.
 An in-flight bounded GitHub read can finish after the deadline, but readiness
 cannot be accepted after it. It waits only for an absent arming artifact or an
 exact trusted live job with a queued/pending loop and publication either
@@ -32,9 +34,11 @@ immediately. No provider client/session is created during this wait.
 
 Receipt freshness stays 180 seconds; there is no refresh or automatic redispatch.
 Fingerprint computation precedes the final complete gate to reduce the interval
-between authorization and creation. The producer job timeout is 20 minutes to
-accommodate setup, up to five minutes of waiting and the existing 600-second task.
-No settings, secrets, protections, spending approval or creation scope change.
+between authorization and creation. The producer job timeout is 30 minutes to
+accommodate setup, up to fifteen minutes of waiting and the existing 600-second task.
+No settings, secrets, protections or creation scope change. This does not grant
+new spending approval: the extra ten-minute runner allowance must fit the owner's
+all-in budget before any live use.
 
 ## Recovery approval ordering safeguards
 
@@ -55,8 +59,9 @@ an in-flight bounded read may finish later but cannot return late readiness.
 
 The protected stage does not wait again or refresh the binding. Delayed approval,
 producer cancellation, a replaced claim, or an expired producer wait prevents
-receipt publication. The existing five-minute producer wait is not extended:
-this removes the wrong-order approval trap, not the need for prompt attendance.
+receipt publication. The producer now allows fifteen minutes for this approval and startup sequence.
+This reduces time pressure, but still requires attendance and fails closed at
+the deadline. Receipt age is never extended or refreshed.
 No observation guarantees future liveness; the producer's final complete gate,
 180-second receipt freshness and one-use claim remain unchanged. A failed window
 does not permit an automatic retry, new paid dispatch, or recreation of a session.
