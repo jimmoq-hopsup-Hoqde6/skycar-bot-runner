@@ -1,0 +1,34 @@
+name: Read-only inventory of previous pilot
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: skycar-previous-attempt-inventory
+  cancel-in-progress: false
+jobs:
+  inventory:
+    if: github.repository == 'jimmoq-hopsup-Hoqde6/skycar-bot-runner' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.event_name == 'workflow_dispatch'
+    environment: skycar-agent-pilot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install pinned SDK without API credentials
+        run: python3 -m pip install -r scripts/autonomy/requirements-pilot.txt
+      - name: Read fixed previous attempt only
+        env:
+          OPENAI_API_KEY: ${{ secrets.SKYCAR_PILOT_OPENAI_API_KEY }}
+        run: python3 scripts/autonomy/inventory_previous_attempt.py --output "$RUNNER_TEMP/previous-attempt-inventory.json"
+      - name: Preserve allowlisted result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: previous-attempt-inventory-${{ github.run_id }}
+          path: ${{ runner.temp }}/previous-attempt-inventory.json
+          overwrite: false
+          if-no-files-found: warn
+          retention-days: 14
