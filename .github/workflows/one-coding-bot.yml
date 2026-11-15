@@ -65,7 +65,7 @@ jobs:
         run: python3 -m pip install -r scripts/autonomy/requirements-pilot.txt
       - name: Execute one approved artifact-only task
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.SKYCAR_PILOT_OPENAI_API_KEY }}
           REVIEWED_FINGERPRINT: ${{ needs.preflight.outputs.fingerprint }}
         run: |
           set -euo pipefail
