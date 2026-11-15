@@ -190,7 +190,8 @@ def execute(client, request, output: Path, token: str):
     signal.alarm(MAX_SECONDS)
     try:
         # Create idle first: retain the ID before sending any coding task. SDK retries off.
-        session = client.beta.agents.sessions.create(**request)
+        from session_create_diagnostics import create_session
+        session = create_session(client, request, state)
         session_id = session.id
         state.update(session_id=session_id, status="session_created")
         write_json(output / "state.json", state)
