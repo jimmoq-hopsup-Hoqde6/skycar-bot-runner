@@ -1,4 +1,4 @@
-name: One bounded coding bot
+name: 'Producer: one bounded coding bot'
 on:
   workflow_dispatch:
     inputs:

@@ -6,9 +6,16 @@ unresolved attempt and confirm the existing cost, key and environment approvals.
 1. Dispatch the reviewed producer on main, attempt one, opting in. Complete its
    ordinary protected-environment approval first. It checks out inputs, installs
    the SDK, publishes its one-use claim and waits for recovery readiness.
-2. While that wait is running, dispatch and normally approve recovery targeting
-   this exact producer run ID and same immutable workflow SHA.
-3. Recovery publishes the receipt and begins its independent loop. Producer
+2. Dispatch recovery targeting this exact producer run ID and same immutable
+   workflow SHA. Its first job has no protected environment or OpenAI secret.
+   It waits up to 300 seconds for the exact live `coding-task` job, successful
+   `Publish one-use claim` step and in-progress `Execute one approved artifact-only
+   task` step. Only this positive readiness result unlocks recovery's ordinary
+   protected-environment approval. Approve that recovery promptly while the
+   producer is still waiting. A queued job is not readiness.
+3. After approval, recovery re-fetches the live producer and verifies the same
+   immutable claim before its provider-read probe, and revalidates again before
+   staging a receipt. Recovery publishes the receipt and begins its independent loop. Producer
    accepts only a uniquely identified live recovery, then downloads and validates
    the receipt and rechecks the complete existing authorization gate.
 4. Remain present through execution and cleanup. An unresolved prior attempt,
@@ -28,3 +35,28 @@ Fingerprint computation precedes the final complete gate to reduce the interval
 between authorization and creation. The producer job timeout is 20 minutes to
 accommodate setup, up to five minutes of waiting and the existing 600-second task.
 No settings, secrets, protections, spending approval or creation scope change.
+
+## Recovery approval ordering safeguards
+
+The secret-free wait reads only this repository's exact first-attempt run, jobs
+and artifacts through the existing read-only GitHub token. It requires the
+reviewed immutable SHA, main branch, manual producer workflow and live job.
+It checks the claim's run/SHA, artifact ID, archive digest and sole file contents,
+then re-fetches records after download. Its job ID, artifact ID and digest flow
+to the protected job as a mandatory binding, not as authorization on their own.
+Claim contents are never extracted or executed. API credentials are not loaded.
+
+Missing/ambiguous jobs or published claims, malformed records, pagination,
+authentication errors and terminal states fail closed. Only a positively
+identified pending job or unfinished producer prerequisite can be polled.
+If recovery starts before GitHub has listed the producer's job, it fails safely
+rather than guessing a job identity. The deadline is checked after every probe;
+an in-flight bounded read may finish later but cannot return late readiness.
+
+The protected stage does not wait again or refresh the binding. Delayed approval,
+producer cancellation, a replaced claim, or an expired producer wait prevents
+receipt publication. The existing five-minute producer wait is not extended:
+this removes the wrong-order approval trap, not the need for prompt attendance.
+No observation guarantees future liveness; the producer's final complete gate,
+180-second receipt freshness and one-use claim remain unchanged. A failed window
+does not permit an automatic retry, new paid dispatch, or recreation of a session.

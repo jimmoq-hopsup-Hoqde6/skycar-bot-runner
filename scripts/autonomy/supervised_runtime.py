@@ -17,6 +17,7 @@ from supervised_recovery_handshake import (RecoveryBlocked, trusted_run, PRODUCE
     arm, cleanup_window, MAX_RECEIPT_AGE, PRODUCER_SECONDS)
 from recovery_receipt import MAX_ARCHIVE
 from verify_supervised_gate import verify
+from producer_readiness import observe_producer, wait_for_producer, validate_proof
 
 
 def records(pid, rid, sha, token, opener, *, allow_terminal_producer=False):
@@ -141,23 +142,50 @@ def write(path, value):
     return True
 
 
+def stage_recovery(pid, rid, sha, token, opener, expected, output, client_factory):
+    """Revalidate after human approval, and again after the provider read.
+
+    The unprotected job's exact immutable claim binding is mandatory. There is
+    no readiness wait here: delayed approval or changed state yields no receipt.
+    """
+    validate_proof(expected, pid, sha)
+    def readiness():
+        return observe_producer(pid, sha, token, opener,
+            lambda aid: download_archive(aid, token,
+                urllib.request.build_opener(CaptureRedirect()),
+                urllib.request.build_opener(NoRedirect())), expected=expected)
+    producer, recovery = records(pid, rid, sha, token, opener)
+    readiness()  # Before constructing a provider client or making its read probe.
+    with client_factory(api_key=os.environ['OPENAI_API_KEY'], base_url='https://api.openai.com/v1',
+                        max_retries=0, timeout=20) as client:
+        def probe(metadata):
+            page = client.beta.agents.sessions.list(metadata=metadata, limit=2)
+            return len(page.data) == 0 and not page.has_next_page()
+        def persist(receipt):
+            readiness()  # No receipt if producer stopped while probe was in flight.
+            return write(output, receipt)
+        return arm(producer, recovery, int(time.time()), probe, persist)
+
+
 def main():
     import argparse
-    parser=argparse.ArgumentParser();parser.add_argument('mode',choices=['stage-recovery','recover','execute']);parser.add_argument('--producer-id',type=int);parser.add_argument('--root',type=Path);parser.add_argument('--output',type=Path,required=True)
+    parser=argparse.ArgumentParser();parser.add_argument('mode',choices=['wait-producer','stage-recovery','recover','execute']);parser.add_argument('--producer-id',type=int);parser.add_argument('--root',type=Path);parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args()
     token=os.environ.get('GITHUB_TOKEN','');sha=os.environ.get('GITHUB_SHA','')
     rid=int(os.environ['GITHUB_RUN_ID'])
     if os.environ.get('GITHUB_RUN_ATTEMPT')!='1' or os.environ.get('GITHUB_REF')!='refs/heads/main' or os.environ.get('GITHUB_REPOSITORY')!='jimmoq-hopsup-Hoqde6/skycar-bot-runner':raise RecoveryBlocked('Untrusted workflow context')
     opener=urllib.request.build_opener(NoRedirect())
-    if args.mode=='stage-recovery':
+    if args.mode=='wait-producer':
+        proof=wait_for_producer(args.producer_id,sha,token,opener,
+            lambda aid:download_archive(aid,token,urllib.request.build_opener(CaptureRedirect()),urllib.request.build_opener(NoRedirect())))
+        write(args.output,proof)
+    elif args.mode=='stage-recovery':
         from openai import OpenAI
-        producer,recovery=records(args.producer_id,rid,sha,token,opener)
-        with OpenAI(api_key=os.environ['OPENAI_API_KEY'],base_url='https://api.openai.com/v1',max_retries=0,timeout=20) as client:
-            def probe(metadata):
-                page=client.beta.agents.sessions.list(metadata=metadata,limit=2)
-                return len(page.data)==0 and not page.has_next_page()
-            # Candidate only; durable publication is the following upload action.
-            arm(producer,recovery,int(time.time()),probe,lambda receipt:write(args.output,receipt))
+        expected=dict(producer_run_id=args.producer_id,workflow_sha=sha,run_attempt=1,
+            producer_job_id=int(os.environ['READY_PRODUCER_JOB_ID']),
+            claim_artifact_id=int(os.environ['READY_CLAIM_ARTIFACT_ID']),
+            claim_digest=os.environ['READY_CLAIM_DIGEST'])
+        stage_recovery(args.producer_id,rid,sha,token,opener,expected,args.output,OpenAI)
     elif args.mode=='recover':
         from openai import OpenAI
         receipt=json.loads(args.output.read_text())
