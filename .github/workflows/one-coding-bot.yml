@@ -45,7 +45,7 @@ jobs:
           assert data['mode'] == 'offline_preflight'
           assert len(data['request_fingerprint']) == 64
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-              summary.write('## Exact offline pilot scope; paid execution blocked\n```json\n' + json.dumps(data, indent=2) + '\n```\n')
+              summary.write('## Exact offline pilot scope; protected approval and recovery required\n```json\n' + json.dumps(data, indent=2) + '\n```\n')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               out.write('fingerprint=' + data['request_fingerprint'] + '\n')
           print(json.dumps(data, indent=2))
@@ -55,8 +55,8 @@ jobs:
           python3 -m unittest discover -s controller/tests/autonomy -p test_queue_dry_run.py -v
   coding-task:
     needs: preflight
-    # Deliberate activation lock: requires a separate reviewed change after safeguards exist.
-    if: ${{ false }}
+    # Review candidate only; normal protected-environment approval is still mandatory.
+    if: inputs.execute_paid_task == true && needs.preflight.result == 'success' && github.repository == 'jimmoq-hopsup-Hoqde6/skycar-bot-runner' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.event_name == 'workflow_dispatch'
     environment: skycar-agent-pilot
     runs-on: ubuntu-24.04
     timeout-minutes: 15
