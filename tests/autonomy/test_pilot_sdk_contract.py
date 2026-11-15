@@ -47,15 +47,17 @@ class SDKContractTests(unittest.TestCase):
             return httpx2.Response(200,json=session)
         with OpenAI(api_key='offline-contract-test',max_retries=0,http_client=httpx2.Client(transport=httpx2.MockTransport(handle))) as client:
             with tempfile.TemporaryDirectory() as tmp:
-                request=pilot.build_request({p:b'# source\n' for p in pilot.ALLOWED_FILES},'a'*40,100)
+                request=pilot.bind_attempt(pilot.build_request({p:b'# source\n' for p in pilot.ALLOWED_FILES},'f10a36fe98961dc1dcfbace37d9323752e1f3ffe',100),123,1,'a'*40)
                 if failed:
                     with self.assertRaises(Exception): pilot.execute(client,request,Path(tmp)/'out',pilot.fingerprint(request))
                     self.assertFalse((Path(tmp)/'out'/'changes.json').exists())
                 else:
                     state=pilot.execute(client,request,Path(tmp)/'out',pilot.fingerprint(request))
                     self.assertEqual(state['turn_id'],'turn_contract')
-                    self.assertEqual(state['cleanup'],'deletion_requested')
+                    self.assertEqual(state['cleanup'],'deletion_confirmed')
         created=json.loads(requests[0][2])
+        self.assertEqual(created['metadata']['runner_run_id'],'123')
+        self.assertEqual(created['metadata']['runner_workflow_sha'],'a'*40)
         self.assertEqual(created['spend_control'],{'limit':100})
         self.assertEqual(created['environment']['network'],{'access':'disabled'})
         messages=[json.loads(body) for method,path,body in requests if method=='POST' and path.endswith('/events')]
