@@ -1,0 +1,58 @@
+name: Supervised pilot recovery draft
+on:
+  workflow_dispatch:
+    inputs:
+      producer_run_id:
+        description: 'Exact waiting producer run ID; trusted GitHub lookup required'
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: skycar-supervised-recovery
+  cancel-in-progress: false
+jobs:
+  supervised-recovery:
+    # Activation requires separate reviewed approval; never merely set this to true.
+    if: ${{ false }}
+    environment: skycar-agent-pilot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install pinned controller SDK without API credentials
+        run: python3 -m pip install -r scripts/autonomy/requirements-pilot.txt
+      - name: Stage arming candidate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OPENAI_API_KEY: ${{ secrets.SKYCAR_PILOT_OPENAI_API_KEY }}
+          PRODUCER_RUN_ID: ${{ inputs.producer_run_id }}
+        run: python3 scripts/autonomy/supervised_runtime.py stage-recovery --producer-id "$PRODUCER_RUN_ID" --output "$RUNNER_TEMP/arming.json"
+      - name: Publish arming receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pilot-recovery-armed-${{ inputs.producer_run_id }}
+          path: ${{ runner.temp }}/arming.json
+          overwrite: false
+          if-no-files-found: error
+          retention-days: 14
+      - name: Bounded recovery loop
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OPENAI_API_KEY: ${{ secrets.SKYCAR_PILOT_OPENAI_API_KEY }}
+        run: python3 scripts/autonomy/supervised_runtime.py recover --output "$RUNNER_TEMP/arming.json"
+      - name: Preserve recovery evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pilot-recovery-result-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/arming.json
+            ${{ runner.temp }}/cleanup.json
+          overwrite: false
+          if-no-files-found: warn
+          retention-days: 14
