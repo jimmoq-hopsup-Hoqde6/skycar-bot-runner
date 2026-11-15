@@ -13,7 +13,7 @@ def review(root, sha, artifact, state_path, output):
     raw = artifact.read_bytes()
     state = json.loads(state_path.read_text())
     if (state.get('sha') != sha or state.get('status') != 'artifact_validated_NOT_TESTED'
-            or state.get('cleanup') != 'deletion_requested'
+            or state.get('cleanup') != 'deletion_confirmed'
             or state.get('artifact_sha256') != hashlib.sha256(raw).hexdigest()):
         raise PilotError('Artifact does not match successful pilot evidence')
     changed = validate_artifact(raw)

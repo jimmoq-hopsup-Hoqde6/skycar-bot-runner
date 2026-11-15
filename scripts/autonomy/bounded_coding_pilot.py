@@ -8,6 +8,7 @@ in a disposable, network-disabled test container before considering a draft PR.
 from __future__ import annotations
 
 import argparse
+import copy
 import base64
 import hashlib
 import json
@@ -96,6 +97,30 @@ def build_request(files: dict, sha: str, cents: int):
     }
 
 
+def bind_attempt(request, run_id, run_attempt, workflow_sha):
+    """Bind reviewed source to one independently verifiable Actions run."""
+    from reconcile_pilot_attempt import attempt_metadata
+    metadata = attempt_metadata(run_id, run_attempt, workflow_sha)
+    if request.get('metadata') != {k: metadata[k] for k in ('repository', 'commit', 'task')}:
+        raise PilotError('Attempt source scope does not match the pinned pilot')
+    bound = copy.deepcopy(request)
+    bound['metadata'] = metadata
+    return bound
+
+
+def validate_attempt(request):
+    from reconcile_pilot_attempt import attempt_metadata
+    metadata = request.get('metadata', {})
+    try:
+        expected = attempt_metadata(int(metadata['runner_run_id']),
+                                    int(metadata['runner_run_attempt']),
+                                    metadata['runner_workflow_sha'])
+    except (KeyError, TypeError, ValueError):
+        raise PilotError('Execution requires a durable run identity') from None
+    if metadata != expected:
+        raise PilotError('Execution metadata is outside the reviewed attempt')
+
+
 def fingerprint(request):
     """Bind approval to exact source bytes, task, model, network and budget."""
     encoded = json.dumps({"request": request, "input": TASK}, sort_keys=True).encode()
@@ -147,12 +172,15 @@ def write_json(path, value):
 def execute(client, request, output: Path, token: str):
     if token != fingerprint(request):
         raise PilotError("Request fingerprint does not match exact reviewed request")
+    validate_attempt(request)
     # Exclusive output directory prevents overwriting evidence, not cross-run replay.
     # External owner approval and run reconciliation are mandatory for every invocation.
     output.mkdir(parents=False, exist_ok=False)
     state = {"task": TASK_ID, "sha": request["metadata"]["commit"],
              "request_fingerprint": token, "status": "creation_pending", "session_id": None,
-             "turn_id": None, "cleanup": "not_started"}
+             "turn_id": None, "cleanup": "not_started",
+             "attempt_metadata": request["metadata"],
+             "reconciliation": "reconcile_pilot_attempt.reconcile"}
     write_json(output / "state.json", state)
     session_id = None
     def deadline(_signum, _frame):
@@ -230,8 +258,11 @@ def execute(client, request, output: Path, token: str):
                 pass
             for attempt in range(3):
                 try:
-                    client.beta.agents.sessions.delete(session_id)
-                    state["cleanup"] = "deletion_requested"
+                    deleted = client.beta.agents.sessions.delete(session_id)
+                    if getattr(deleted, 'id', None) == session_id and getattr(deleted, 'deleted', None) is True:
+                        state["cleanup"] = "deletion_confirmed"
+                    else:
+                        state["cleanup"] = "pending_manual_reconciliation"
                     break
                 except Exception as exc:
                     state["cleanup"] = "pending_manual_reconciliation"
@@ -241,7 +272,7 @@ def execute(client, request, output: Path, token: str):
         else:
             state["cleanup"] = "creation_outcome_unknown_do_not_retry"
         write_json(output / "state.json", state)
-    if state["cleanup"] != "deletion_requested":
+    if state["cleanup"] != "deletion_confirmed":
         raise PilotError("Session cleanup pending; inspect state.json before any next run")
     return state
 
@@ -254,15 +285,24 @@ def main():
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--request-fingerprint", default="")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--run-id", type=int)
+    parser.add_argument("--run-attempt", type=int)
+    parser.add_argument("--workflow-sha")
     args = parser.parse_args()
     try:
         request = build_request(source_snapshot(args.root, args.sha), args.sha, args.budget_cents)
+        supplied = (args.run_id, args.run_attempt, args.workflow_sha)
+        if any(value is not None for value in supplied):
+            if not all(value is not None for value in supplied):
+                raise PilotError('All attempt identity fields are required together')
+            request = bind_attempt(request, *supplied)
         if not args.execute:
             print(json.dumps({"mode": "offline_preflight", "task": TASK_ID,
                               "sha": args.sha, "paths": ALLOWED_FILES, "model": MODEL,
                               "session_budget_cents": args.budget_cents,
                               "request_fingerprint": fingerprint(request), "network": "disabled",
-                              "writes": "artifact_only", "schedule": "none"}, indent=2))
+                              "writes": "artifact_only", "schedule": "none",
+                              "attempt_metadata": request["metadata"]}, indent=2))
             return
         if not args.output or not os.environ.get("OPENAI_API_KEY"):
             raise PilotError("Execution requires output path and existing OPENAI_API_KEY")
