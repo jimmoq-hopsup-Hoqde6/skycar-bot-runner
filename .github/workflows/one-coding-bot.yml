@@ -1,0 +1,93 @@
+name: One bounded coding bot
+on:
+  workflow_dispatch:
+    inputs:
+      execute_paid_task:
+        description: 'Execute only after separate exact-task and all-in cost approval'
+        type: boolean
+        required: true
+        default: false
+      request_fingerprint:
+        description: 'Fingerprint from the reviewed offline preflight; required for paid execution'
+        type: string
+        required: false
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  group: skycar-bot-execution
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'jimmoq-hopsup-Hoqde6/skycar-bot-runner' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      fingerprint: ${{ steps.scope.outputs.fingerprint }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: jimmoq-hopsup-Hoqde6/skycar-site
+          ref: f10a36fe98961dc1dcfbace37d9323752e1f3ffe
+          persist-credentials: false
+      - id: scope
+        env:
+          OPENAI_API_KEY: ''
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = f10a36fe98961dc1dcfbace37d9323752e1f3ffe
+          python3 scripts/autonomy/bounded_coding_pilot.py --sha f10a36fe98961dc1dcfbace37d9323752e1f3ffe > "$RUNNER_TEMP/preflight.json"
+          python3 - "$RUNNER_TEMP/preflight.json" <<'PY'
+          import json, os, sys
+          data = json.load(open(sys.argv[1]))
+          assert data['mode'] == 'offline_preflight'
+          assert data['request_fingerprint'] == '5f1b42e91c8178b79385f3394a3b9de986fab8cd5d463b7c926a308512dfbb56'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write('fingerprint=' + data['request_fingerprint'] + '\n')
+          print(json.dumps(data, indent=2))
+          PY
+          python3 -m unittest discover -s tests/autonomy -p test_bounded_coding_pilot.py -v
+          python3 -m unittest discover -s tests/autonomy -p test_review_pilot_artifact.py -v
+          python3 -m unittest discover -s tests/autonomy -p test_queue_dry_run.py -v
+  coding-task:
+    needs: preflight
+    if: inputs.execute_paid_task == true && inputs.request_fingerprint == needs.preflight.outputs.fingerprint && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    environment: skycar-agent-pilot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: jimmoq-hopsup-Hoqde6/skycar-site
+          ref: f10a36fe98961dc1dcfbace37d9323752e1f3ffe
+          persist-credentials: false
+      - name: Install pinned controller SDK without API credentials
+        run: python3 -m pip install -r scripts/autonomy/requirements-pilot.txt
+      - name: Execute one approved artifact-only task
+        env:
+          OPENAI_API_KEY: ${{ secrets.SKYCAR_PILOT_OPENAI_API_KEY }}
+          REVIEWED_FINGERPRINT: ${{ needs.preflight.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = f10a36fe98961dc1dcfbace37d9323752e1f3ffe
+          python3 scripts/autonomy/bounded_coding_pilot.py \
+            --sha f10a36fe98961dc1dcfbace37d9323752e1f3ffe \
+            --execute --request-fingerprint "$REVIEWED_FINGERPRINT" \
+            --output "$RUNNER_TEMP/coding-pilot"
+      - name: Prepare review patch without executing generated code
+        run: |
+          python3 scripts/autonomy/review_pilot_artifact.py \
+            --root . --sha f10a36fe98961dc1dcfbace37d9323752e1f3ffe \
+            --artifact "$RUNNER_TEMP/coding-pilot/changes.json" \
+            --state "$RUNNER_TEMP/coding-pilot/state.json" \
+            --output "$RUNNER_TEMP/candidate-review"
+      - name: Preserve evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: one-coding-bot-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/coding-pilot
+            ${{ runner.temp }}/candidate-review
+          retention-days: 14
+          if-no-files-found: warn
