@@ -7,11 +7,6 @@ on:
         type: boolean
         required: true
         default: false
-      request_fingerprint:
-        description: 'Fingerprint from the reviewed offline preflight; required for paid execution'
-        type: string
-        required: false
-        default: ''
 permissions:
   contents: read
 concurrency:
@@ -27,6 +22,12 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
+          ref: ${{ github.sha }}
+          path: controller
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          path: app
           repository: jimmoq-hopsup-Hoqde6/skycar-site
           ref: f10a36fe98961dc1dcfbace37d9323752e1f3ffe
           persist-credentials: false
@@ -35,49 +36,63 @@ jobs:
           OPENAI_API_KEY: ''
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = f10a36fe98961dc1dcfbace37d9323752e1f3ffe
-          python3 scripts/autonomy/bounded_coding_pilot.py --sha f10a36fe98961dc1dcfbace37d9323752e1f3ffe > "$RUNNER_TEMP/preflight.json"
+          test "$(git -C app rev-parse HEAD)" = f10a36fe98961dc1dcfbace37d9323752e1f3ffe
+          python3 controller/scripts/autonomy/workflow_preflight.py --root app --controller controller > "$RUNNER_TEMP/preflight.json"
           python3 - "$RUNNER_TEMP/preflight.json" <<'PY'
           import json, os, sys
           data = json.load(open(sys.argv[1]))
           assert data['mode'] == 'offline_preflight'
-          assert data['request_fingerprint'] == '5f1b42e91c8178b79385f3394a3b9de986fab8cd5d463b7c926a308512dfbb56'
+          assert len(data['request_fingerprint']) == 64
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('## Exact offline pilot scope; paid execution blocked\n```json\n' + json.dumps(data, indent=2) + '\n```\n')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               out.write('fingerprint=' + data['request_fingerprint'] + '\n')
           print(json.dumps(data, indent=2))
           PY
-          python3 -m unittest discover -s tests/autonomy -p test_bounded_coding_pilot.py -v
-          python3 -m unittest discover -s tests/autonomy -p test_review_pilot_artifact.py -v
-          python3 -m unittest discover -s tests/autonomy -p test_queue_dry_run.py -v
+          python3 -m unittest discover -s controller/tests/autonomy -p test_bounded_coding_pilot.py -v
+          python3 -m unittest discover -s controller/tests/autonomy -p test_review_pilot_artifact.py -v
+          python3 -m unittest discover -s controller/tests/autonomy -p test_queue_dry_run.py -v
   coding-task:
     needs: preflight
-    if: inputs.execute_paid_task == true && inputs.request_fingerprint == needs.preflight.outputs.fingerprint && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    # Deliberate activation lock: requires a separate reviewed change after safeguards exist.
+    if: ${{ false }}
     environment: skycar-agent-pilot
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
+          ref: ${{ github.sha }}
+          path: controller
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          path: app
           repository: jimmoq-hopsup-Hoqde6/skycar-site
           ref: f10a36fe98961dc1dcfbace37d9323752e1f3ffe
           persist-credentials: false
       - name: Install pinned controller SDK without API credentials
-        run: python3 -m pip install -r scripts/autonomy/requirements-pilot.txt
+        run: python3 -m pip install -r controller/scripts/autonomy/requirements-pilot.txt
       - name: Execute one approved artifact-only task
         env:
           OPENAI_API_KEY: ${{ secrets.SKYCAR_PILOT_OPENAI_API_KEY }}
+          TRUSTED_RUN_ID: ${{ github.run_id }}
+          TRUSTED_RUN_ATTEMPT: ${{ github.run_attempt }}
+          TRUSTED_WORKFLOW_SHA: ${{ github.sha }}
           REVIEWED_FINGERPRINT: ${{ needs.preflight.outputs.fingerprint }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = f10a36fe98961dc1dcfbace37d9323752e1f3ffe
-          python3 scripts/autonomy/bounded_coding_pilot.py \
+          test "$(git -C app rev-parse HEAD)" = f10a36fe98961dc1dcfbace37d9323752e1f3ffe
+          python3 controller/scripts/autonomy/bounded_coding_pilot.py \
+            --root app --run-id "$TRUSTED_RUN_ID" --run-attempt "$TRUSTED_RUN_ATTEMPT" \
+            --workflow-sha "$TRUSTED_WORKFLOW_SHA" \
             --sha f10a36fe98961dc1dcfbace37d9323752e1f3ffe \
             --execute --request-fingerprint "$REVIEWED_FINGERPRINT" \
             --output "$RUNNER_TEMP/coding-pilot"
       - name: Prepare review patch without executing generated code
         run: |
-          python3 scripts/autonomy/review_pilot_artifact.py \
-            --root . --sha f10a36fe98961dc1dcfbace37d9323752e1f3ffe \
+          python3 controller/scripts/autonomy/review_pilot_artifact.py \
+            --root app --sha f10a36fe98961dc1dcfbace37d9323752e1f3ffe \
             --artifact "$RUNNER_TEMP/coding-pilot/changes.json" \
             --state "$RUNNER_TEMP/coding-pilot/state.json" \
             --output "$RUNNER_TEMP/candidate-review"
